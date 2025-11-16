@@ -20,15 +20,42 @@ import os
 FUTURE_FLAGS_PATH = "data/future_flags.csv"
 
 def load_future_flags():
-    if os.path.exists(FUTURE_FLAGS_PATH):
+    """Load persisted future flags safely."""
+    if not os.path.exists(FUTURE_FLAGS_PATH):
+        return []
+
+    try:
         df = pd.read_csv(FUTURE_FLAGS_PATH, parse_dates=["Date"])
         return df.to_dict(orient="records")
-    return []
+    except pd.errors.EmptyDataError:
+        # File exists but is empty → return empty list
+        return []
+
 
 
 def save_future_flags(flags_list):
+    """Persist future flags to CSV file, preserving columns even if empty."""
+
+    # Define the schema
+    columns = ["Date", "Type", "Count", "Event_Name", "Location"]
+
+    # Case 1: If empty → write headers only
+    if len(flags_list) == 0:
+        empty_df = pd.DataFrame(columns=columns)
+        empty_df.to_csv(FUTURE_FLAGS_PATH, index=False)
+        return
+
+    # Case 2: Save normally
     df = pd.DataFrame(flags_list)
+
+    # Ensure all required columns exist
+    for col in columns:
+        if col not in df.columns:
+            df[col] = None
+
+    df = df[columns]  # enforce column order
     df.to_csv(FUTURE_FLAGS_PATH, index=False)
+
 
 
 

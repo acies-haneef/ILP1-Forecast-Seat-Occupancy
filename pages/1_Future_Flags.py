@@ -8,6 +8,7 @@ from utils.forecasting import load_future_flags, save_future_flags
 st.set_page_config(page_title="Future Flags", page_icon="⚙️", layout="wide")
 st.title("⚙️ Configure Future Inputs (Bangalore / Chennai)")
 
+
 # ---------------------------------------------------------
 # SESSION STATE INITIALIZATION
 # ---------------------------------------------------------
@@ -22,7 +23,6 @@ def load_initial_values():
     blr = blr.dropna(subset=["Date"])
     che = che.dropna(subset=["Date"])
 
-
     blr_last = blr.sort_values("Date").iloc[-1]
     che_last = che.sort_values("Date").iloc[-1]
 
@@ -33,13 +33,14 @@ def load_initial_values():
         "che_seats": int(che_last["Seating_Capacity"])
     }
 
+
 if "future_flags" not in st.session_state:
     st.session_state.future_flags = load_future_flags()
-
 
 if "edit_index" not in st.session_state:
     st.session_state.edit_index = None
 
+# Initialize workforce + seating
 if "workforce_blr" not in st.session_state:
     init = load_initial_values()
     st.session_state.workforce_blr = init["blr_workforce"]
@@ -48,11 +49,9 @@ if "workforce_blr" not in st.session_state:
     st.session_state.seats_che = init["che_seats"]
 
 
-
 # ---------------------------------------------------------
 # Helper: Convert flags to dataframe
 # ---------------------------------------------------------
-
 def get_df():
     if not st.session_state.future_flags:
         return pd.DataFrame(columns=["Date", "Location", "Type", "Count", "Event_Name"])
@@ -76,6 +75,7 @@ with col2:
 
 st.markdown("---")
 
+
 # ---------------------------------------------------------
 # INPUT EXPANDERS
 # ---------------------------------------------------------
@@ -92,7 +92,10 @@ with st.expander("🏢 Seating Capacity", expanded=False):
             st.session_state.seats_blr = newcap
         else:
             st.session_state.seats_che = newcap
+
+        # Save NO persist here because seating is not stored in CSV — only flags.
         st.success(f"Seat capacity updated for {loc}")
+
 
 # Hiring / Exit
 with st.expander("👥 Hiring / Exit", expanded=False):
@@ -106,6 +109,8 @@ with st.expander("👥 Hiring / Exit", expanded=False):
     if st.button("➕ Add Hiring/Exit"):
         rec = {"Date": d, "Location": loc, "Type": typ, "Count": cnt, "Event_Name": ""}
         st.session_state.future_flags.append(rec)
+
+        # Save persistently
         save_future_flags(st.session_state.future_flags)
 
         # Update workforce
@@ -115,6 +120,7 @@ with st.expander("👥 Hiring / Exit", expanded=False):
             st.session_state.workforce_che += cnt if typ == "Hiring" else -cnt
 
         st.success(f"{typ} added for {loc}.")
+
 
 # Holidays / Events
 with st.expander("📅 Holidays & Events", expanded=False):
@@ -135,6 +141,7 @@ with st.expander("📅 Holidays & Events", expanded=False):
 
 st.markdown("---")
 
+
 # ---------------------------------------------------------
 # REVIEW TABLES
 # ---------------------------------------------------------
@@ -147,26 +154,28 @@ else:
     people = df[df.Type.isin(["Hiring", "Exit"])]
     events = df[df.Type.isin(["Mandatory", "Restricted", "Event"])]
 
-    # Hiring Table
+    # ---------------------- Hiring Table ----------------------
     st.subheader("👥 Hiring / Exit")
-    cols = st.columns([2, 2, 2, 1, 1])
+    cols = st.columns([2, 2, 2, 2, 1, 1])
     cols[0].markdown("**Date**")
     cols[1].markdown("**Location**")
     cols[2].markdown("**Type**")
-    cols[3].markdown("**Edit**")
-    cols[4].markdown("**Delete**")
+    cols[3].markdown("**Count**")
+    cols[4].markdown("**Edit**")
+    cols[5].markdown("**Delete**")
 
     for idx, row in people.iterrows():
-        rc = st.columns([2, 2, 2, 1, 1])
+        rc = st.columns([2, 2, 2, 2, 1, 1])
         rc[0].write(row.Date.date())
         rc[1].write(row.Location)
         rc[2].write(row.Type)
+        rc[3].write(row.Count)
 
-        if rc[3].button("✏️", key=f"e{idx}"):
+        if rc[4].button("✏️", key=f"e{idx}"):
             st.session_state.edit_index = idx
-            save_future_flags(st.session_state.future_flags)
 
-        if rc[4].button("❌", key=f"d{idx}"):
+        if rc[5].button("❌", key=f"d{idx}"):
+
             # undo workforce
             if row.Type == "Hiring":
                 if row.Location == "Bangalore": st.session_state.workforce_blr -= row.Count
@@ -177,31 +186,35 @@ else:
 
             st.session_state.future_flags.pop(idx)
             save_future_flags(st.session_state.future_flags)
-            st.experimental_rerun()
+            st.rerun()
 
     st.markdown("---")
 
-    # Events table
+    # ---------------------- Events Table ----------------------
     st.subheader("📅 Holidays & Events")
-    cols = st.columns([2, 2, 2, 1, 1])
+    cols = st.columns([2, 2, 2, 2, 1, 1])
     cols[0].markdown("**Date**")
     cols[1].markdown("**Location**")
-    cols[2].markdown("**Event Name**")
-    cols[3].markdown("**Edit**")
-    cols[4].markdown("**Delete**")
+    cols[2].markdown("**Type**")
+    cols[3].markdown("**Event Name**")
+    cols[4].markdown("**Edit**")
+    cols[5].markdown("**Delete**")
 
     for idx, row in events.iterrows():
-        rc = st.columns([2, 2, 2, 1, 1])
+        rc = st.columns([2, 2, 2, 2, 1, 1])
         rc[0].write(row.Date.date())
         rc[1].write(row.Location)
-        rc[2].write(row.Event_Name)
+        rc[2].write(row.Type)
+        rc[3].write(row.Event_Name)
 
-        if rc[3].button("✏️", key=f"eh{idx}"):
+        if rc[4].button("✏️", key=f"eh{idx}"):
             st.session_state.edit_index = idx
 
-        if rc[4].button("❌", key=f"dh{idx}"):
+        if rc[5].button("❌", key=f"dh{idx}"):
+
             st.session_state.future_flags.pop(idx)
-            st.experimental_rerun()
+            save_future_flags(st.session_state.future_flags)
+            st.rerun()
 
 
 # ---------------------------------------------------------
@@ -218,15 +231,16 @@ if st.session_state.edit_index is not None:
         st.write(f"Editing record for {row.Date.date()}")
 
         new_loc = st.selectbox("Location", ["Bangalore", "Chennai"],
-                               index=["Bangalore","Chennai"].index(row.Location))
+                               index=["Bangalore", "Chennai"].index(row.Location))
 
+        # ------------------ Hiring / Exit edit ------------------
         if row.Type in ["Hiring", "Exit"]:
-            new_type = st.selectbox("Type", ["Hiring","Exit"], index=["Hiring","Exit"].index(row.Type))
+            new_type = st.selectbox("Type", ["Hiring", "Exit"],
+                                    index=["Hiring", "Exit"].index(row.Type))
             new_count = st.number_input("Count", value=row.Count, min_value=0)
 
-            # save
             if st.button("Save"):
-                # Revert old effect
+                # revert old effect
                 if row.Type == "Hiring":
                     if row.Location == "Bangalore": st.session_state.workforce_blr -= row.Count
                     else: st.session_state.workforce_che -= row.Count
@@ -234,7 +248,7 @@ if st.session_state.edit_index is not None:
                     if row.Location == "Bangalore": st.session_state.workforce_blr += row.Count
                     else: st.session_state.workforce_che += row.Count
 
-                # Apply new effect
+                # apply new effect
                 if new_type == "Hiring":
                     if new_loc == "Bangalore": st.session_state.workforce_blr += new_count
                     else: st.session_state.workforce_che += new_count
@@ -249,12 +263,16 @@ if st.session_state.edit_index is not None:
                     "Count": new_count,
                     "Event_Name": ""
                 }
-                st.session_state.edit_index = None
-                st.experimental_rerun()
 
+                save_future_flags(st.session_state.future_flags)
+                st.session_state.edit_index = None
+                st.rerun()
+
+        # ------------------ Holiday/Event edit ------------------
         else:
-            new_type = st.selectbox("Type", ["Mandatory","Restricted","Event"],
-                                    index=["Mandatory","Restricted","Event"].index(row.Type))
+            new_type = st.selectbox("Type",
+                                    ["Mandatory", "Restricted", "Event"],
+                                    index=["Mandatory", "Restricted", "Event"].index(row.Type))
             new_name = st.text_input("Event Name", value=row.Event_Name)
 
             if st.button("Save"):
@@ -265,12 +283,14 @@ if st.session_state.edit_index is not None:
                     "Count": 0,
                     "Event_Name": new_name
                 }
+                save_future_flags(st.session_state.future_flags)
                 st.session_state.edit_index = None
-                st.experimental_rerun()
+                st.rerun()
 
         if st.button("Delete"):
             st.session_state.future_flags.pop(idx)
+            save_future_flags(st.session_state.future_flags)
             st.session_state.edit_index = None
-            st.experimental_rerun()
+            st.rerun()
 
     edit_modal()
