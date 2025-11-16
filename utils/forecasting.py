@@ -15,6 +15,22 @@ PREDICTOR_COLS = [
     "Hiring_Flag",
 ]
 
+import os
+
+FUTURE_FLAGS_PATH = "data/future_flags.csv"
+
+def load_future_flags():
+    if os.path.exists(FUTURE_FLAGS_PATH):
+        df = pd.read_csv(FUTURE_FLAGS_PATH, parse_dates=["Date"])
+        return df.to_dict(orient="records")
+    return []
+
+
+def save_future_flags(flags_list):
+    df = pd.DataFrame(flags_list)
+    df.to_csv(FUTURE_FLAGS_PATH, index=False)
+
+
 
 def load_historical_for_location(loc, data_dir="data"):
     path = os.path.join(data_dir, f"master_{loc.lower()}.csv")

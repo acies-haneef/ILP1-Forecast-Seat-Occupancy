@@ -5,6 +5,8 @@ import pandas as pd
 import numpy as np
 from datetime import timedelta
 import plotly.graph_objects as go
+from utils.forecasting import load_future_flags
+
 
 from utils.forecasting import (
     load_historical_for_location,
@@ -86,6 +88,7 @@ buffer_seats = st.number_input(
 if st.button("▶️ Run Forecast"):
 
     if "future_flags" not in st.session_state:
+        st.session_state.future_flags = load_future_flags()
         st.error("Please configure future flags on Page 1.")
         st.stop()
 

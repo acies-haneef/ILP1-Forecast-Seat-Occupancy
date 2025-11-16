@@ -2,6 +2,8 @@
 import streamlit as st
 import pandas as pd
 from datetime import date
+from utils.forecasting import load_future_flags, save_future_flags
+
 
 st.set_page_config(page_title="Future Flags", page_icon="⚙️", layout="wide")
 st.title("⚙️ Configure Future Inputs (Bangalore / Chennai)")
@@ -32,7 +34,8 @@ def load_initial_values():
     }
 
 if "future_flags" not in st.session_state:
-    st.session_state.future_flags = []  # list of dicts
+    st.session_state.future_flags = load_future_flags()
+
 
 if "edit_index" not in st.session_state:
     st.session_state.edit_index = None
@@ -103,6 +106,7 @@ with st.expander("👥 Hiring / Exit", expanded=False):
     if st.button("➕ Add Hiring/Exit"):
         rec = {"Date": d, "Location": loc, "Type": typ, "Count": cnt, "Event_Name": ""}
         st.session_state.future_flags.append(rec)
+        save_future_flags(st.session_state.future_flags)
 
         # Update workforce
         if loc == "Bangalore":
@@ -125,6 +129,7 @@ with st.expander("📅 Holidays & Events", expanded=False):
         st.session_state.future_flags.append({
             "Date": d, "Location": loc, "Type": typ, "Count": 0, "Event_Name": name
         })
+        save_future_flags(st.session_state.future_flags)
         st.success(f"{typ} added for {loc}.")
 
 
@@ -159,6 +164,7 @@ else:
 
         if rc[3].button("✏️", key=f"e{idx}"):
             st.session_state.edit_index = idx
+            save_future_flags(st.session_state.future_flags)
 
         if rc[4].button("❌", key=f"d{idx}"):
             # undo workforce
@@ -170,6 +176,7 @@ else:
                 else: st.session_state.workforce_che += row.Count
 
             st.session_state.future_flags.pop(idx)
+            save_future_flags(st.session_state.future_flags)
             st.experimental_rerun()
 
     st.markdown("---")
