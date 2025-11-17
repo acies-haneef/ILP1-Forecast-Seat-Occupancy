@@ -4,3 +4,6 @@ scikit-learn
 plotly
 prophet
 streamlit
+sentence-transformers
+groq
+dotenv

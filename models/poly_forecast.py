@@ -32,3 +32,20 @@ class PolynomialForecaster:
 
 def predict_poly(df, cols, model_dir="models"):
     return PolynomialForecaster(model_dir).predict(df, cols)
+
+def train_poly_model(df, target_col, feature_cols):
+    from sklearn.preprocessing import PolynomialFeatures
+    from sklearn.linear_model import LinearRegression
+
+    X = df[feature_cols].values
+    y = df[target_col].values
+
+    poly = PolynomialFeatures(degree=1, include_bias=False)  # same as your model
+    X_poly = poly.fit_transform(X)
+
+    model = LinearRegression()
+    model.fit(X_poly, y)
+
+    feature_names = poly.get_feature_names_out(feature_cols)
+
+    return model, X_poly, feature_names

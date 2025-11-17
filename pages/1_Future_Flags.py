@@ -2,6 +2,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import date
+
 from utils.forecasting import load_future_flags, save_future_flags
 
 
@@ -56,7 +57,8 @@ def get_df():
     if not st.session_state.future_flags:
         return pd.DataFrame(columns=["Date", "Location", "Type", "Count", "Event_Name"])
     df = pd.DataFrame(st.session_state.future_flags)
-    df["Date"] = pd.to_datetime(df["Date"])
+    df["orig_index"] = df.index
+    df["Date"] = pd.to_datetime(df["Date"], format="mixed", dayfirst=True, errors="coerce")
     return df.sort_values(["Date", "Location"]).reset_index(drop=True)
 
 
@@ -114,10 +116,10 @@ with st.expander("👥 Hiring / Exit", expanded=False):
         save_future_flags(st.session_state.future_flags)
 
         # Update workforce
-        if loc == "Bangalore":
-            st.session_state.workforce_blr += cnt if typ == "Hiring" else -cnt
-        else:
-            st.session_state.workforce_che += cnt if typ == "Hiring" else -cnt
+        # if loc == "Bangalore":
+        #     st.session_state.workforce_blr += cnt if typ == "Hiring" else -cnt
+        # else:
+        #     st.session_state.workforce_che += cnt if typ == "Hiring" else -cnt
 
         st.success(f"{typ} added for {loc}.")
 
@@ -151,8 +153,8 @@ st.header("📋 Review Flags")
 if df.empty:
     st.info("No flags yet.")
 else:
-    people = df[df.Type.isin(["Hiring", "Exit"])]
-    events = df[df.Type.isin(["Mandatory", "Restricted", "Event"])]
+    people = df[df.Type.isin(["Hiring", "Exit"])].reset_index(drop=True)
+    events = df[df.Type.isin(["Mandatory", "Restricted", "Event"])].reset_index(drop=True)
 
     # ---------------------- Hiring Table ----------------------
     st.subheader("👥 Hiring / Exit")
@@ -164,27 +166,28 @@ else:
     cols[4].markdown("**Edit**")
     cols[5].markdown("**Delete**")
 
-    for idx, row in people.iterrows():
+    for display_i, row in people.iterrows():
+        true_idx = row.name
+        # TRUE index inside list
+        # true_idx = df.index[df["Date"].eq(row.Date) &
+        #                      df["Location"].eq(row.Location) &
+        #                      df["Type"].eq(row.Type) &
+        #                      df["Count"].eq(row.Count)].tolist()[0]
+
         rc = st.columns([2, 2, 2, 2, 1, 1])
         rc[0].write(row.Date.date())
         rc[1].write(row.Location)
         rc[2].write(row.Type)
         rc[3].write(row.Count)
 
-        if rc[4].button("✏️", key=f"e{idx}"):
-            st.session_state.edit_index = idx
+        if rc[4].button("✏️", key=f"edit_{true_idx}"):
+            st.session_state.edit_index = true_idx
 
-        if rc[5].button("❌", key=f"d{idx}"):
+        if rc[5].button("❌", key=f"del_{true_idx}"):
 
-            # undo workforce
-            if row.Type == "Hiring":
-                if row.Location == "Bangalore": st.session_state.workforce_blr -= row.Count
-                else: st.session_state.workforce_che -= row.Count
-            else:
-                if row.Location == "Bangalore": st.session_state.workforce_blr += row.Count
-                else: st.session_state.workforce_che += row.Count
-
-            st.session_state.future_flags.pop(idx)
+            # ❌ DO NOT TOUCH WORKFORCE ANYMORE
+            orig = row.orig_index
+            st.session_state.future_flags.pop(orig)
             save_future_flags(st.session_state.future_flags)
             st.rerun()
 
@@ -200,21 +203,27 @@ else:
     cols[4].markdown("**Edit**")
     cols[5].markdown("**Delete**")
 
-    for idx, row in events.iterrows():
+    for display_i, row in events.iterrows():
+        true_idx = row.name
+        # true_idx = df.index[df["Date"].eq(row.Date) &
+        #                      df["Location"].eq(row.Location) &
+        #                      df["Type"].eq(row.Type) &
+        #                      df["Event_Name"].eq(row.Event_Name)].tolist()[0]
+
         rc = st.columns([2, 2, 2, 2, 1, 1])
         rc[0].write(row.Date.date())
         rc[1].write(row.Location)
         rc[2].write(row.Type)
         rc[3].write(row.Event_Name)
 
-        if rc[4].button("✏️", key=f"eh{idx}"):
-            st.session_state.edit_index = idx
+        if rc[4].button("✏️", key=f"edit_evt_{true_idx}"):
+            st.session_state.edit_index = true_idx
 
-        if rc[5].button("❌", key=f"dh{idx}"):
-
-            st.session_state.future_flags.pop(idx)
+        if rc[5].button("❌", key=f"del_evt_{true_idx}"):
+            st.session_state.future_flags.pop(true_idx)
             save_future_flags(st.session_state.future_flags)
             st.rerun()
+
 
 
 # ---------------------------------------------------------
@@ -225,54 +234,51 @@ if st.session_state.edit_index is not None:
     @st.dialog("Edit Flag")
     def edit_modal():
         idx = st.session_state.edit_index
+
+        # Read latest
         df = get_df()
-        row = df.loc[idx]
+
+        if idx >= len(df):
+            st.error("Record no longer exists.")
+            st.session_state.edit_index = None
+            st.rerun()
+
+        row = df.iloc[idx]
 
         st.write(f"Editing record for {row.Date.date()}")
 
-        new_loc = st.selectbox("Location", ["Bangalore", "Chennai"],
-                               index=["Bangalore", "Chennai"].index(row.Location))
+        new_loc = st.selectbox(
+            "Location",
+            ["Bangalore", "Chennai"],
+            index=["Bangalore", "Chennai"].index(row.Location)
+        )
 
-        # ------------------ Hiring / Exit edit ------------------
+        # --------------- Hiring / Exit ----------------
         if row.Type in ["Hiring", "Exit"]:
             new_type = st.selectbox("Type", ["Hiring", "Exit"],
                                     index=["Hiring", "Exit"].index(row.Type))
             new_count = st.number_input("Count", value=row.Count, min_value=0)
 
             if st.button("Save"):
-                # revert old effect
-                if row.Type == "Hiring":
-                    if row.Location == "Bangalore": st.session_state.workforce_blr -= row.Count
-                    else: st.session_state.workforce_che -= row.Count
-                else:
-                    if row.Location == "Bangalore": st.session_state.workforce_blr += row.Count
-                    else: st.session_state.workforce_che += row.Count
-
-                # apply new effect
-                if new_type == "Hiring":
-                    if new_loc == "Bangalore": st.session_state.workforce_blr += new_count
-                    else: st.session_state.workforce_che += new_count
-                else:
-                    if new_loc == "Bangalore": st.session_state.workforce_blr -= new_count
-                    else: st.session_state.workforce_che -= new_count
-
-                st.session_state.future_flags[idx] = {
+                orig = row.orig_index
+                st.session_state.future_flags[orig] = {
                     "Date": row.Date.date(),
                     "Location": new_loc,
                     "Type": new_type,
                     "Count": new_count,
                     "Event_Name": ""
                 }
-
                 save_future_flags(st.session_state.future_flags)
                 st.session_state.edit_index = None
                 st.rerun()
 
-        # ------------------ Holiday/Event edit ------------------
+        # --------------- Holiday/Event ---------------
         else:
-            new_type = st.selectbox("Type",
-                                    ["Mandatory", "Restricted", "Event"],
-                                    index=["Mandatory", "Restricted", "Event"].index(row.Type))
+            new_type = st.selectbox(
+                "Type",
+                ["Mandatory", "Restricted", "Event"],
+                index=["Mandatory", "Restricted", "Event"].index(row.Type)
+            )
             new_name = st.text_input("Event Name", value=row.Event_Name)
 
             if st.button("Save"):
@@ -294,3 +300,4 @@ if st.session_state.edit_index is not None:
             st.rerun()
 
     edit_modal()
+

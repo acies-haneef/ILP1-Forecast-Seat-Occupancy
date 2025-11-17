@@ -56,10 +56,7 @@ def save_future_flags(flags_list):
     df = df[columns]  # enforce column order
     df.to_csv(FUTURE_FLAGS_PATH, index=False)
 
-
-
-
-def load_historical_for_location(loc, data_dir="data"):
+def load_location_history(loc, data_dir="data"):
     path = os.path.join(data_dir, f"master_{loc.lower()}.csv")
     if not os.path.exists(path):
         raise FileNotFoundError(f"Missing historical file: {path}")
@@ -84,6 +81,7 @@ def apply_future_flags(future_df, flags, start_headcount, seating_capacity):
       Headcount, Hiring_Flag, Is_Mandatory_Holiday, Is_Restricted_Holiday,
       Event_Flag, Seating_Capacity, DayOfWeek
     """
+
     df = future_df.copy()
     df["Date"] = pd.to_datetime(df["Date"])
     df = df.sort_values("Date").reset_index(drop=True)
@@ -97,13 +95,13 @@ def apply_future_flags(future_df, flags, start_headcount, seating_capacity):
     df["Seating_Capacity"] = seating_capacity
     df["DayOfWeek"] = df["Date"].dt.weekday
 
-    # normalize incoming flags' dates
+    # normalize flags
     normalized = []
     for f in flags:
         ff = dict(f)
-        ff["Date"] = pd.to_datetime(ff["Date"], dayfirst=True, errors="coerce").date() if pd.notna(ff.get("Date")) else None
-        # normalize Type, Count, Event_Name presence
+        ff["Date"] = pd.to_datetime(ff["Date"], errors="coerce").date() if pd.notna(ff.get("Date")) else None
         ff["Type"] = str(ff.get("Type"))
+        ff["Location"] = str(ff.get("Location", "")).strip().lower()
         ff["Count"] = int(ff.get("Count", 0)) if ff.get("Count") not in (None, "") else 0
         ff.setdefault("Event_Name", "")
         normalized.append(ff)
@@ -114,33 +112,43 @@ def apply_future_flags(future_df, flags, start_headcount, seating_capacity):
         d = row["Date"].date()
         todays = [f for f in normalized if f["Date"] == d]
 
-        change = 0
+        day_hiring_or_exit_occurred = False
+
         for f in todays:
             t = f["Type"]
+
             if t == "Hiring":
-                hc += int(f.get("Count", 0))
-                change += int(f.get("Count", 0))
+                hc += f["Count"]
+                day_hiring_or_exit_occurred = True
+
             elif t == "Exit":
-                hc -= int(f.get("Count", 0))
-                change -= int(f.get("Count", 0))
+                hc -= f["Count"]
+                day_hiring_or_exit_occurred = True
+
             elif t == "Mandatory":
                 df.at[i, "Is_Mandatory_Holiday"] = 1
+
             elif t == "Restricted":
                 df.at[i, "Is_Restricted_Holiday"] = 1
+
             elif t == "Event":
                 df.at[i, "Event_Flag"] = 1
 
-        df.at[i, "Hiring_Flag"] = change
+        # ✔ Hiring_Flag must be only a signal, NOT the number of hires
+        df.at[i, "Hiring_Flag"] = 1 if day_hiring_or_exit_occurred else 0
+
+        # update headcount
         df.at[i, "Headcount"] = hc
 
-    # forward fill headcount if needed (safety)
+    # forward fill headcount
     df["Headcount"] = df["Headcount"].ffill().astype(int)
 
-    # ensure flags numeric ints
+    # enforce numeric types
     for col in ["Is_Mandatory_Holiday", "Is_Restricted_Holiday", "Event_Flag", "Hiring_Flag"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
+        df[col] = df[col].fillna(0).astype(int)
 
     return df
+
 
 
 def run_forecast_models(hist_df, future_df):
@@ -198,7 +206,7 @@ def run_forecast_models(hist_df, future_df):
         fut.drop(columns=["Is_Mandatory_Holiday_flag"], inplace=True)
 
     # Ensure final_pred numeric
-    fut["final_pred"] = pd.to_numeric(fut["final_pred"], errors="coerce")
+    fut["final_pred"] = pd.to_numeric(fut["final_pred"], errors="coerce").round()
 
     # Return selected columns (future rows with preds and flags)
     out_cols = ["Date", "Headcount", "Hiring_Flag", "Is_Mandatory_Holiday",

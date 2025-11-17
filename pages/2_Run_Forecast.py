@@ -8,14 +8,23 @@ import plotly.graph_objects as go
 
 from utils.forecasting import (
     load_future_flags,
-    load_historical_for_location,
+    load_location_history,
     apply_future_flags,
     run_forecast_models
 )
 
+
 # ----------------------------------------------------
 # CONFIG
 # ----------------------------------------------------
+PREDICTOR_COLS = [
+    "Headcount",
+    "DayOfWeek",
+    "Is_Mandatory_Holiday",
+    "Is_Restricted_Holiday",
+    "Event_Flag",
+    "Hiring_Flag",
+]
 VAL_DAYS = 22
 st.set_page_config(page_title="Run Forecast", layout="wide")
 st.title("📈 WFO Forecast — Seating-first View (Fixed Buffer)")
@@ -27,8 +36,8 @@ if "future_flags" not in st.session_state:
     st.session_state.future_flags = load_future_flags()
 
 # Auto-load seats from historical data for both locations
-hist_blr = load_historical_for_location("bangalore")
-hist_che = load_historical_for_location("chennai")
+hist_blr = load_location_history("bangalore")
+hist_che = load_location_history("chennai")
 
 default_blr_seats = int(hist_blr["Seating_Capacity"].iloc[-1]) if len(hist_blr) > 0 else 0
 default_che_seats = int(hist_che["Seating_Capacity"].iloc[-1]) if len(hist_che) > 0 else 0
@@ -118,7 +127,7 @@ if st.button("▶️ Run Forecast"):
         # ------------------------------------------------
         # 1) Load historical data
         # ------------------------------------------------
-        hist = load_historical_for_location(loc)
+        hist = load_location_history(loc)
         hist = hist.sort_values("Date").reset_index(drop=True)
 
         if len(hist) <= VAL_DAYS:
@@ -142,7 +151,8 @@ if st.button("▶️ Run Forecast"):
         future_base = pd.DataFrame({"Date": business_dates})
 
         relevant_flags = [
-            f for f in st.session_state.future_flags if f["Location"].lower() == loc
+            f for f in st.session_state.future_flags
+            if str(f.get("Location", "")).strip().lower() == loc.strip().lower()
         ]
 
         future_ready = apply_future_flags(future_base, relevant_flags, last_hc, seating_capacity)
@@ -178,12 +188,12 @@ if st.button("▶️ Run Forecast"):
         val_df["pred"] = (
             best_w * val_preds["short_term_pred"]
             + (1 - best_w) * val_preds["long_term_pred"]
-        )
+        ).round().astype(int)
 
         mand_mask_val = val_ready["Is_Mandatory_Holiday"] == 1
         val_df.loc[mand_mask_val, "pred"] = 0
 
-        val_df["naive"] = val_df["Total_WFO"].shift(1).fillna(method="bfill")
+        val_df["naive"] = val_df["Total_WFO"].shift(1).fillna(method="bfill").astype(int)
 
         # ------------------------------------------------
         # 6) Apply blend to future predictions
@@ -197,9 +207,9 @@ if st.button("▶️ Run Forecast"):
             mand_mask = preds["Is_Mandatory_Holiday"] == 1
             preds.loc[mand_mask, ["final_pred", "short_term_pred", "long_term_pred"]] = 0
 
-        preds["predicted_wfo"] = preds["final_pred"].round(2)
-        preds["required_seats"] = preds["predicted_wfo"] + buffer_seats
-        preds["seating_capacity"] = seating_capacity
+        preds["predicted_wfo"] = preds["final_pred"].round().astype(int)
+        preds["required_seats"] = (preds["predicted_wfo"] + buffer_seats).astype(int)
+        preds["seating_capacity"] = int(seating_capacity)
 
         # ------------------------------------------------
         # 7) Seating Summary
@@ -281,6 +291,34 @@ if st.button("▶️ Run Forecast"):
             st.markdown("---")
             st.markdown("### Validation Predictions")
             st.dataframe(val_df[["Date", "Total_WFO", "pred", "naive"]])
+
+        with st.expander("🧠 Feature Importance (Short-Term Poly Model)"):
+
+            try:
+                # Refit poly model on training data to capture coefficients
+                from models.poly_forecast import train_poly_model
+
+                # train_poly_model must return (model, poly_transformed_X)
+                poly_model, X_train_poly, feature_names = train_poly_model(
+                    train_df, 
+                    target_col="Total_WFO",
+                    feature_cols=PREDICTOR_COLS
+                )
+
+                # Standard deviation of each feature
+                stds = np.std(X_train_poly, axis=0)
+
+                importances = np.abs(poly_model.coef_ * stds)
+
+                imp_df = pd.DataFrame({
+                    "Feature": feature_names,
+                    "Importance": importances
+                }).sort_values(by="Importance", ascending=False)
+
+                st.dataframe(imp_df.reset_index(drop=True))
+
+            except Exception as e:
+                st.error(f"Could not compute feature importance: {e}")
 
         # ------------------------------------------------
         # 11) Forecast Plot
